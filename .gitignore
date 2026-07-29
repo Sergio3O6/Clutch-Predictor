@@ -1,0 +1,31 @@
+# Local-only working files
+CLAUDE.md
+docs/PROJECT_SPEC.md
+
+# Raw datasets. The source CSV is 37MB; committing it would weigh down clone
+# and CI-checkout time permanently, and git history cannot be trimmed later
+# without a rewrite. Only the small processed slice under data/processed/ is
+# tracked, produced reproducibly from the raw file.
+data/raw/*
+!data/raw/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Terraform. These land here in Phase 0 rather than Phase 5 because *.tfstate
+# stores resource attributes in plaintext, secrets included, and the cheapest
+# moment to prevent that commit is before the repo has any commits at all.
+# .terraform.lock.hcl is deliberately NOT ignored - it pins provider versions
+# and belongs in review.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
