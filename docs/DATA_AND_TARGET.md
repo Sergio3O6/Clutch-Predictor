@@ -65,9 +65,34 @@ enforced in the feature engineering module.
 
 ### 1. `gameDuration`, information from the future
 
-Present in every row, but it is the *total* length of the match. At minute 10 you
-cannot know how long the game will run, and duration correlates strongly with
-outcome because one-sided games end early. Using it would leak the result.
+Present in every row, but it is the *total* length of the match, which has not
+happened yet at minute 10.
+
+The reason to exclude it is the API contract rather than accuracy. A caller
+predicting a live match cannot supply this value. If it were a model input,
+`/predict` would demand a field nobody can fill, and callers would end up
+passing a zero or a guess that the model then weights as though it were real.
+
+It is worth being precise about the accuracy claim, because the obvious
+assumption turns out to be wrong. Duration was measured against the outcome:
+
+| Measurement | Value |
+|---|---|
+| Correlation with `hasWon` | -0.0301 |
+| Correlation with `abs(goldDiff)` | -0.3904 |
+| Win rate, matches under 20 min | 0.5293 |
+| Win rate, matches over 35 min | 0.4848 |
+
+Duration tracks the *margin* of a match, not its *direction*. Short games are
+one-sided, but because this dataset records a single team perspective per match,
+a short game is roughly as likely to be a fast loss as a fast win. Adding the
+column back to the feature set moves holdout accuracy by -0.0004, and the model
+assigns it a coefficient of -0.075 against +0.962 for `goldDiff`.
+
+So excluding it costs nothing and gains nothing measurable here. It stays
+excluded because it is unavailable at prediction time, and because that weak
+relationship is not guaranteed to stay weak on a dataset carrying both
+perspectives or a different distribution of game lengths.
 
 ### 2. Terminal-state structures
 
@@ -76,6 +101,13 @@ already being broken, which means the game is effectively decided. At frame 10
 they are under 0.15% nonzero and so carry almost no signal anyway, but the
 exclusion is stated as a *rule* rather than a convenience: it continues to hold
 if the frame is ever moved later.
+
+Measured, these columns are not currently doing damage. Adding all twelve back
+moves holdout accuracy by -0.0006 at frame 10 and by -0.0019 at frame 24. The
+`destroyed*` and `lost*` pairs partly cancel, and by the time a base is falling
+the legitimate features already describe a decided game. The rule is kept
+because it is stated in terms of what the structures mean, which does not depend
+on those numbers staying where they are.
 
 ### 3. Structurally impossible objectives
 
@@ -110,8 +142,22 @@ final list.
 
 ## Expected performance
 
-Minute-10 state is informative but far from decisive. Comparable public work on
-similar snapshots lands around 70-75% accuracy, and the baseline to beat is 50.2%
-(majority class). A model materially above ~80% should be treated as a leakage
-bug rather than a success. That is the main reason these exclusions are written
-down before any training code exists.
+Minute-10 state is informative but far from decisive. The baseline to beat is
+50.3% (majority class), and the current logistic regression reaches 73.1%
+holdout accuracy with an ROC AUC of 0.807 and a Brier score of 0.180.
+Cross-validation on the training split gives 72.3% (+/- 0.3%), so the holdout is
+not a lucky draw.
+
+At frame 10, accuracy materially above 80% should be treated as a leakage bug
+rather than a success. That ceiling is specific to this prediction point and
+does not generalise: the same honest feature set reaches 84.0% at frame 24,
+simply because more of the match has happened. Any change to the prediction
+frame needs its own ceiling.
+
+One further note on splitting. Training across every frame with an ordinary
+random split scores 78.8%, against 77.6% for a split grouped by `gameId`, with
+19,933 of 24,912 matches appearing on both sides. The 1.2 point gap is real but
+small because logistic regression has only 33 coefficients and cannot memorise
+individual matches. A higher-capacity model would inflate considerably more
+under the same contamination, so the single-frame design matters more, not less,
+if the model is ever changed.
