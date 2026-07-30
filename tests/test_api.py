@@ -108,3 +108,32 @@ def test_unknown_field_is_rejected(client):
 
 def test_wrong_type_is_rejected(client):
     assert client.post("/predict", json=match_state(kills="lots")).status_code == 422
+
+
+def test_response_carries_a_request_id(client):
+    response = client.get("/health")
+
+    assert response.headers["x-request-id"]
+
+
+def test_inbound_request_id_is_honoured(client):
+    """A trace started upstream should survive rather than restarting here."""
+    response = client.get("/health", headers={"x-request-id": "trace-abc-123"})
+
+    assert response.headers["x-request-id"] == "trace-abc-123"
+
+
+def test_unexpected_failure_returns_500_without_leaking_detail():
+    """A broken model must not return internals in the response body."""
+
+    class ExplodingModel:
+        def predict_proba(self, _):
+            raise RuntimeError("weights are corrupt at /secret/path")
+
+    with TestClient(app, raise_server_exceptions=False) as broken:
+        broken.app.state.model = ExplodingModel()
+        response = broken.post("/predict", json=match_state())
+
+    assert response.status_code == 500
+    assert "corrupt" not in response.text
+    assert "secret" not in response.text

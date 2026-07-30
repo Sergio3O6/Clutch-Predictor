@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import joblib
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from api.schemas import Health, MatchState, Prediction
 
@@ -71,6 +73,48 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def bind_request_id(request: Request, call_next):
+    """Tag every log line from one request with the same id.
+
+    Without this, concurrent requests interleave in the log stream and there is
+    no way to tell which prediction belongs to which caller. An inbound
+    x-request-id is honoured so a trace survives across a load balancer or an
+    upstream service rather than restarting at our door.
+    """
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
+
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(request_id=request_id)
+    try:
+        response = await call_next(request)
+    finally:
+        # Workers are reused across requests, so leaving the binding in place
+        # would leak this id onto whatever request lands here next.
+        structlog.contextvars.clear_contextvars()
+
+    response.headers["x-request-id"] = request_id
+    return response
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+    """Log unexpected failures instead of losing them.
+
+    The default handler returns a 500 with nothing written down, which means the
+    one case you most need to investigate is the one leaving no trace. The
+    response stays deliberately vague: internal detail in an error body is a
+    disclosure risk, and the request id is enough to find the real cause.
+    """
+    log.error(
+        "unhandled_exception",
+        error=str(exc),
+        error_type=type(exc).__name__,
+        path=request.url.path,
+    )
+    return JSONResponse(status_code=500, content={"detail": "internal server error"})
 
 
 @app.get("/health", response_model=Health)
