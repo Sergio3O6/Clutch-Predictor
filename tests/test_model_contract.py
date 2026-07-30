@@ -14,7 +14,10 @@ so the change is visible in review rather than silent.
 import joblib
 import pandas as pd
 import pytest
+from pydantic.alias_generators import to_camel
 from sklearn.model_selection import train_test_split
+from smoke_container import EXPECTED_PROBABILITY as SMOKE_PROBABILITY
+from smoke_container import PAYLOAD as SMOKE_PAYLOAD
 
 from api.main import MODEL_PATH
 from model.features import TARGET, feature_columns
@@ -93,6 +96,27 @@ def test_reference_input_returns_the_expected_probability(pipeline):
     probability = float(pipeline.predict_proba(row)[0, 1])
 
     assert probability == pytest.approx(REFERENCE_PROBABILITY, abs=1e-9)
+
+
+def test_smoke_payload_agrees_with_the_artifact(pipeline):
+    """Keep the container smoke test's pinned values honest.
+
+    tests/smoke_container.py restates this reference match in wire format and
+    hardcodes the expected probability, because it runs on the CI runner with
+    nothing but the standard library available. That duplication is the price of
+    not installing scikit-learn twice, and this test is what stops it drifting:
+    a retrain that updates the constants here but not there fails now, in the
+    fast job, rather than in the container job several minutes later.
+    """
+    row = {to_camel(name): value for name, value in SMOKE_PAYLOAD.items()}
+
+    assert sorted(row) == sorted(EXPECTED_FEATURES), "smoke payload is not the schema"
+
+    frame = pd.DataFrame([row], columns=EXPECTED_FEATURES)
+    probability = float(pipeline.predict_proba(frame)[0, 1])
+
+    assert probability == pytest.approx(SMOKE_PROBABILITY, abs=1e-9)
+    assert SMOKE_PROBABILITY == REFERENCE_PROBABILITY
 
 
 def test_holdout_accuracy_stays_in_band(pipeline, holdout):

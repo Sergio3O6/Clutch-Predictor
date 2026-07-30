@@ -1,0 +1,102 @@
+# Runs the checks that have to pass before anything merges: the test suite, the
+# linter, and a container build that is actually started and questioned rather
+# than just built.
+#
+# Actions are pinned to major-version tags rather than floating on @master, so a
+# third party cannot change what runs in this repository without a commit here
+# saying so.
+
+name: CI
+
+# Only main and PRs trigger this. Adding pushes on every branch would run the
+# whole workflow twice for one change once a PR is open.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Read-only by default. Nothing here publishes anything yet, and a workflow that
+# cannot write is one less thing to secure when the registry push lands.
+permissions:
+  contents: read
+
+# Superseded runs are wasted minutes. Cancel them when new commits arrive, but
+# never on main, where every commit is a release candidate worth a real result.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  test:
+    name: tests and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Tests
+        run: pytest -v
+
+      # always() so a lint nit and a real test failure surface in the same run
+      # instead of costing two round trips to discover one after the other.
+      - name: Lint
+        if: always()
+        run: ruff check --output-format=github .
+
+  docker:
+    name: container build and smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Deliberately not gated on `test`. These check different things, one the
+    # code and one the image around it, so running them in parallel makes the
+    # wall clock the slower of the two rather than their sum.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # load: true puts the image in the local daemon so the next step can run
+      # it. No registry push here; that belongs to the deploy phase.
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: clutch:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start
+        run: docker run --detach --name clutch --publish 8000:8000 clutch:ci
+
+      # Stdlib-only on purpose, so this needs no install step of its own.
+      # Polls /health, then asserts the pinned reference match returns the same
+      # probability inside the container that it does outside.
+      - name: Smoke test
+        run: python3 tests/smoke_container.py
+
+      # The container's own logs are the only useful evidence when it refuses to
+      # come up, and they are gone once the runner is torn down.
+      - name: Container logs
+        if: failure()
+        run: docker logs clutch
+
+      - name: Stop
+        if: always()
+        run: docker rm --force clutch

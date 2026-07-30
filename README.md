@@ -1,15 +1,17 @@
 # Clutch
 
+[![CI](https://github.com/Sergio3O6/Clutch-Predictor/actions/workflows/ci.yml/badge.svg)](https://github.com/Sergio3O6/Clutch-Predictor/actions/workflows/ci.yml)
+
 Clutch is a service that predicts whether a League of Legends team wins, based
 on the state of the match at the ten-minute mark. It takes the gold and
 experience differentials, the objectives taken and conceded, and the
 kill/death/assist line, and returns the call along with the probability behind
 it.
 
-**Work in progress.** The model trains and the API runs locally. A Dockerfile
-exists but has not been built yet, there is no CI, and nothing is deployed. The
-status list below tracks what is actually built, and this README will change as
-the rest lands.
+**Work in progress.** The model trains, the API runs locally, and every change
+is tested, linted, and built into a container that gets started and questioned
+before the build passes. Nothing is deployed yet. The status list below tracks
+what is actually built, and this README will change as the rest lands.
 
 ## Prediction target
 
@@ -100,9 +102,6 @@ python data/prepare_data.py
 
 ## Container
 
-Written but not yet verified. The image has not been built, so treat the
-commands below as the intended usage rather than a tested path.
-
 ```bash
 docker build -t clutch .
 docker run -p 8000:8000 clutch
@@ -115,18 +114,76 @@ rather than mounted, so a running container needs nothing external to find its
 weights. It runs as an unprivileged user, and its health check calls the same
 `/health` endpoint a load balancer would.
 
-Verification happens in CI rather than locally: the workflow will build the
-image, start it, and assert that `/health` reports a loaded model and that a
-known payload returns the same probability it does outside the container.
+Verification happens in CI rather than locally, for the reason described below.
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull
+request and every push to `main`, in two jobs that run in parallel:
+
+| Job | What it does |
+|---|---|
+| tests and lint | `pytest` over the feature rules, the API contract, and the committed artifact, then `ruff` |
+| container build and smoke test | builds the image, starts it, and interrogates the running service |
+
+The second job is the one worth explaining. Building an image proves very little
+on its own: it will build cleanly and still fail to serve if the artifact was
+not packaged, if a runtime dependency was left behind in the dev extra, or if
+the unprivileged user cannot read what it needs. So the job starts the
+container, waits for `/health` to report a loaded model, and then posts a fixed
+reference match and asserts it comes back with the same probability the
+artifact produces outside the container. That last assertion is what proves the
+image is serving the weights this repository pinned, rather than merely that
+something is listening on the port.
+
+The smoke test is
+[`tests/smoke_container.py`](tests/smoke_container.py), deliberately written
+against the standard library alone so the container job never installs the
+dependency tree a second time to send one HTTP request. Its pinned values are
+restated from the artifact contract test, and a test in that suite fails if the
+two ever drift apart.
+
+## Design decisions
+
+**The trained model is committed to the repository.** A binary in git is
+usually a smell. It is here because the alternative is worse for a service this
+small: fetching weights from object storage at boot means the container needs
+credentials, network access, and a failure path for a bad download, all to
+retrieve a file measured in kilobytes. Committing it makes CI deterministic and
+offline, lets the contract tests pin the exact bytes that ship, and means a
+running task needs nothing external to answer a request. It would stop being
+the right call the moment the model is retrained on a schedule or grows large.
+
+**A prepared slice of the data is committed, not the raw dataset.** The source
+file is 37 MB of time series, roughly ten snapshots per match. What training
+needs is one row per match at minute 10 with the leaking columns already gone.
+Committing that slice keeps the repository small and lets anyone clone and
+train without downloading anything, while the script that produces it stays in
+the tree so the reduction is reproducible rather than magic.
+
+**Feature selection lives in its own module, not in the training script.** Most
+of the 59 raw columns will leak the match result if fed in unchecked. Those
+exclusion rules are the most important logic in the project, so they are
+expressed as data in `model/features.py`, covered directly by tests, and
+imported by both the preparation script and the trainer. One copy means the two
+cannot disagree about what the model is allowed to see.
+
+**Logistic regression, not something stronger.** Accuracy is not the point of
+this project. A linear model trains in seconds, keeps its coefficients
+readable, and makes a leaked column obvious as an outsized weight instead of
+hiding it inside an ensemble. The training script also warns when accuracy
+lands *above* a per-frame ceiling, on the grounds that minute-10 state does not
+support a score that good and the likely explanation is leakage.
+
+**One uvicorn worker per container.** Fargate scales by running more tasks.
+Adding in-container workers would make a single task's CPU and memory usage
+harder to reason about for no benefit at this size.
 
 ## Planned
 
-Neither of these is built yet.
-
-GitHub Actions will run tests, lint, and the image build on every push.
 Terraform will provision an ECR repository, a Fargate service, the surrounding
 networking, and IAM roles scoped to what each component needs, with state kept
-remote.
+remote. Nothing cloud-side is built yet.
 
 ## Status
 
@@ -134,8 +191,8 @@ remote.
 - [x] Dataset selection and prediction target definition
 - [x] Feature engineering and model training
 - [x] Prediction API
-- [ ] Container image
-- [ ] Automated tests and linting on push
+- [x] Container image
+- [x] Automated tests, linting, and container verification on every change
 - [ ] Cloud infrastructure defined in code
 - [ ] Deployment
 - [ ] Separate staging and production environments
@@ -149,5 +206,6 @@ remote.
 | `model/` | Feature selection rules, training script, and the serialized artifact |
 | `api/` | FastAPI application and request schemas |
 | `infra/` | Terraform configuration. Empty for now. |
-| `tests/` | pytest suite |
+| `tests/` | pytest suite, plus the standalone container smoke test |
+| `.github/workflows/` | CI pipeline |
 | `docs/` | Data and target definition, design notes |
