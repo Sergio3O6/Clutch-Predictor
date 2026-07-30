@@ -1,0 +1,20 @@
+# Normalise line endings. Development happens on Windows and the container runs
+# Linux, so without this git rewrites endings on checkout and produces diffs
+# that contain no actual changes. Left alone it also eventually breaks any shell
+# script copied into the image, since a CRLF shebang fails in a way that is
+# genuinely hard to diagnose.
+* text=auto eol=lf
+
+# The model artifact must never have its bytes rewritten.
+*.joblib binary
+
+# The training slice is deliberately left as normalised text rather than marked
+# binary. pandas writes CRLF when it regenerates the file on Windows, and
+# normalising on add turns that into no diff at all. Marking it binary would
+# instead store whichever endings the generating machine produced, so the same
+# data written on Windows and on a Linux CI runner would look like a complete
+# rewrite of a 2.5MB file every time.
+
+# Collapse generated and data files in pull request diffs. They are still
+# versioned and still reviewable, just not what a reviewer should read first.
+data/processed/*.csv linguist-generated=true
