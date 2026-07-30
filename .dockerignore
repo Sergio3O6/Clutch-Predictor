@@ -1,0 +1,35 @@
+# Keep the build context small and the image free of anything the running
+# service does not need.
+
+# Datasets. The trained artifact is baked into the image, so nothing at runtime
+# reads a CSV. Excluding these keeps ~40MB out of the build context.
+data/
+
+# Local environment and build output
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+__pycache__/
+*.py[cod]
+
+# Repository metadata and tooling
+.git/
+.github/
+.gitignore
+.dockerignore
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Tests and docs do not ship. They run in CI against the source tree, not
+# against the image.
+tests/
+docs/
+README.md
+CLAUDE.md
+
+# Infrastructure code is applied by Terraform, not by the container
+infra/

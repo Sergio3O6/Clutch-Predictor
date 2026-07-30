@@ -6,9 +6,10 @@ experience differentials, the objectives taken and conceded, and the
 kill/death/assist line, and returns the call along with the probability behind
 it.
 
-**Work in progress.** The model trains and the API runs locally. There is no
-container, no CI, and nothing deployed. The status list below tracks what is
-actually built, and this README will change as the rest lands.
+**Work in progress.** The model trains and the API runs locally. A Dockerfile
+exists but has not been built yet, there is no CI, and nothing is deployed. The
+status list below tracks what is actually built, and this README will change as
+the rest lands.
 
 ## Prediction target
 
@@ -97,15 +98,35 @@ The raw dataset is 37 MB and is not committed. Place `lol_ranked_games.csv` in
 python data/prepare_data.py
 ```
 
+## Container
+
+Written but not yet verified. The image has not been built, so treat the
+commands below as the intended usage rather than a tested path.
+
+```bash
+docker build -t clutch .
+docker run -p 8000:8000 clutch
+```
+
+It is a multi-stage build. Dependencies resolve into a virtualenv in a builder
+stage, and the final image copies only that virtualenv, so pip, compilers and
+the wheel cache never ship. The model artifact is installed as package data
+rather than mounted, so a running container needs nothing external to find its
+weights. It runs as an unprivileged user, and its health check calls the same
+`/health` endpoint a load balancer would.
+
+Verification happens in CI rather than locally: the workflow will build the
+image, start it, and assert that `/health` reports a loaded model and that a
+known payload returns the same probability it does outside the container.
+
 ## Planned
 
-None of this is built yet.
+Neither of these is built yet.
 
-The service will be packaged as a multi-stage Docker image with the model
-artifact baked in, so a running container needs nothing external. GitHub Actions
-will run tests, lint, and the image build on every push. Terraform will
-provision an ECR repository, a Fargate service, the surrounding networking, and
-IAM roles scoped to what each component needs, with state kept remote.
+GitHub Actions will run tests, lint, and the image build on every push.
+Terraform will provision an ECR repository, a Fargate service, the surrounding
+networking, and IAM roles scoped to what each component needs, with state kept
+remote.
 
 ## Status
 

@@ -34,6 +34,13 @@ dev = [
 # scripts previously needed to import each other.
 packages = ["model", "api"]
 
+[tool.setuptools.package-data]
+# The trained artifact ships inside the package. api/main.py resolves it as a
+# sibling of the api package, which holds both for an editable install and for
+# a real install into site-packages, so the container needs no source tree and
+# no volume mount to find its weights.
+model = ["*.joblib"]
+
 [tool.ruff]
 line-length = 88
 
