@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clutch-predictor"
+version = "0.1.0"
+description = "Predicts League of Legends match outcomes from the state at minute 10"
+requires-python = ">=3.12"
+
+# Pinned exactly. Transitive versions are left to the resolver, since pinning
+# the full tree is a lockfile's job and reproducibility here is served by
+# pinning what the code imports directly.
+dependencies = [
+    "pandas==3.0.5",
+    "scikit-learn==1.9.0",
+    "joblib==1.5.3",
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.0",
+    "structlog==26.1.0",
+]
+
+[project.optional-dependencies]
+# httpx is here rather than in the runtime set: it only exists to back
+# fastapi's TestClient, and shipping it in the container would be dead weight.
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.16.0",
+    "httpx==0.28.1",
+]
+
+[tool.setuptools]
+# Declaring these explicitly is what removes the sys.path.insert calls that the
+# scripts previously needed to import each other.
+packages = ["model", "api"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

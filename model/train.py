@@ -11,7 +11,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import joblib
@@ -21,8 +20,6 @@ from sklearn.metrics import accuracy_score, brier_score_loss, roc_auc_score
 from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from model.features import PREDICTION_FRAME, TARGET, feature_columns
 
