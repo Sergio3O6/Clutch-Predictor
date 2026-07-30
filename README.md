@@ -6,8 +6,9 @@ experience differentials, the objectives taken and conceded, and the
 kill/death/assist line, and returns the call along with the probability behind
 it.
 
-The model and the API both work locally. Nothing is containerized or deployed
-yet.
+**Work in progress.** The model trains and the API runs locally. There is no
+container, no CI, and nothing deployed. The status list below tracks what is
+actually built, and this README will change as the rest lands.
 
 ## Prediction target
 
@@ -34,11 +35,15 @@ Logistic regression on 33 features, measured on a held-out 20% of matches:
 Gold differential carries most of the signal, at a coefficient of +0.96 against
 +0.45 for experience and under 0.15 for everything else.
 
+Accuracy is 73% across all matches and 86% on the 44% of matches where the model
+is confident, meaning a probability below 0.25 or above 0.75. The rest are close
+games where minute 10 genuinely is not decisive yet.
+
 ## API
 
-`POST /predict` takes all 33 features. Nothing is optional and unrecognised
-fields are rejected, so a caller cannot pass a value the model ignores and
-believe it was used.
+Runs locally for now. `POST /predict` takes all 33 features. Nothing is optional
+and unrecognised fields are rejected, so a caller cannot pass a value the model
+ignores and believe it was used.
 
 ```
 POST /predict
@@ -93,6 +98,8 @@ python data/prepare_data.py
 ```
 
 ## Planned
+
+None of this is built yet.
 
 The service will be packaged as a multi-stage Docker image with the model
 artifact baked in, so a running container needs nothing external. GitHub Actions
